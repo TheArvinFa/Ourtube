@@ -1,0 +1,159 @@
+name: p
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL of the video'
+        required: true
+        type: string
+      output_folder:
+        description: 'Folder where the video will be saved'
+        required: false
+        type: string
+        default: 'downloads'
+      quality:
+        description: 'Video quality (انتخاب کیفیت)'
+        required: true
+        type: choice
+        default: '720p'
+        options:
+          - 'Best (بالاترین کیفیت ممکن)'
+          - '1080p'
+          - '720p'
+          - '480p'
+          - '360p'
+          - 'Audio Only (فقط صدا)'
+      archive_name:
+        description: 'Base name for the RAR archive (if file is split)'
+        required: false
+        type: string
+        default: 'video'
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  download-and-maybe-split:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System Dependencies & Network Libraries
+        run: |
+          sudo apt-get update
+          # نصب کتابخانه‌های ضروری لینوکس برای شبیه‌سازی دقیق TLS Fingerprint مرورگر کروم
+          sudo apt-get install -y bc rar libnss3 gnutls-bin ca-certificates
+          
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          # نصب مستقیم نسخه لبه علم (نایتلی) برای داشتن آخرین بای‌پاس‌ها در کنار ابزار impersonate
+          pip install -U "yt-dlp[default] @ git+https://github.com/yt-dlp/yt-dlp.git@master" curl-cffi
+
+      - name: Download video (retry up to 5 times)
+        id: download
+        shell: bash
+        run: |
+          FOLDER="${{ github.event.inputs.output_folder }}"
+          mkdir -p "$FOLDER"
+          touch marker
+
+          # ترجمه انتخاب کاربر به فرمت‌های استاندارد yt-dlp
+          QUALITY_CHOICE="${{ github.event.inputs.quality }}"
+          case "$QUALITY_CHOICE" in
+            "Best (بالاترین کیفیت ممکن)")
+              YTDLP_FORMAT="bestvideo+bestaudio/best"
+              ;;
+            "1080p")
+              YTDLP_FORMAT="bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+              ;;
+            "720p")
+              YTDLP_FORMAT="bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+              ;;
+            "480p")
+              YTDLP_FORMAT="bestvideo[height<=480]+bestaudio/best[height<=480]/best"
+              ;;
+            "360p")
+              YTDLP_FORMAT="bestvideo[height<=360]+bestaudio/best[height<=360]/best"
+              ;;
+            "Audio Only (فقط صدا)")
+              YTDLP_FORMAT="bestaudio/best"
+              ;;
+            *)
+              YTDLP_FORMAT="bestvideo[height<=720]+bestaudio/best"
+              ;;
+          esac
+
+          MAX_RETRIES=6
+          RETRY_COUNT=0
+          SUCCESS=false
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "Download attempt $((RETRY_COUNT+1))/$MAX_RETRIES"
+            echo "Selected Quality: $QUALITY_CHOICE -> Format: $YTDLP_FORMAT"
+
+            # اجرای دانلود با جعل هویت کروم و بدون نیاز به کوکی
+            yt-dlp \
+              --output "./$FOLDER/%(uploader)s - %(title)s - %(id)s.%(ext)s" \
+              --format "$YTDLP_FORMAT" \
+              --merge-output-format mp4 \
+              --impersonate chrome \
+              --no-cookies \
+              --retries 3 \
+              --fragment-retries 10 \
+              --no-check-certificate \
+              --geo-bypass \
+              --no-color \
+              --ignore-errors \
+              --newline \
+              "${{ github.event.inputs.url }}" && {
+
+                NEW_FILE=$(find "$FOLDER" -type f -newer marker -print -quit)
+
+                if [ -n "$NEW_FILE" ]; then
+                  echo "Download succeeded: $NEW_FILE"
+                  SUCCESS=true
+                  break
+                else
+                  echo "Download finished but no file detected. Retrying..."
+                fi
+              } || {
+                echo "Download attempt failed"
+              }
+
+            RETRY_COUNT=$((RETRY_COUNT+1))
+
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              sleep 5
+            fi
+          done
+
+          if [ "$SUCCESS" = false ]; then
+            echo "All download attempts failed"
+            exit 1
+          fi
+
+          FILENAME=$(basename "$NEW_FILE")
+          SIZE_BYTES=$(stat -c %s "$NEW_FILE")
+
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+          echo "size_bytes=$SIZE_BYTES" >> $GITHUB_OUTPUT
+
+      - name: Upload Files to GitHub Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-media-package
+          path: ${{ github.event.inputs.output_folder }}/
+          retention-days: 7
+          
