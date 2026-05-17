@@ -354,7 +354,8 @@ jobs:
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
         run: |
           # ── SETUP ────────────────────────────────
-          python3 -m yt_dlp_get_pot &
+          nohup python3 -m yt_dlp_get_pot > /dev/null 2>&1 &
+          sleep 2
           echo "$YT_COOKIES" > /tmp/youtube_cookies.txt
           REPO_OWNER="${REPO_OWNER_ENV}"
           REPO_NAME="${REPO_NAME_ENV}"
