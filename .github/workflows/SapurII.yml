@@ -1,4 +1,4 @@
-name: p
+name: Sapur
 
 on:
   workflow_dispatch:
