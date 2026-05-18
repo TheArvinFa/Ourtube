@@ -1,4 +1,4 @@
-name: 10 -  Youtube downloader v1.0
+name: 10 -  Youtube downloader v1.0 (poT)
 
 on:
   workflow_dispatch:
