@@ -1,4 +1,3 @@
-Name: YTX
 
 on:
   workflow_dispatch:
