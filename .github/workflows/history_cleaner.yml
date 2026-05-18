@@ -1,4 +1,4 @@
-name: 100- 🧹 تمیزکننده مخزن
+name: 200- 🧹 تمیزکننده مخزن
 
 on:
   workflow_dispatch:
