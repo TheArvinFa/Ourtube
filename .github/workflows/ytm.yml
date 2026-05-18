@@ -1,4 +1,4 @@
-name: 01 - 🎯 دانلود یوتیوب
+name: 10 -  Youtube downloader v1.0
 
 on:
   workflow_dispatch:
